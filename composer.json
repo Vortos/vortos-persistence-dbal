@@ -1,0 +1,16 @@
+{
+    "name": "vortos/vortos-persistence-dbal",
+    "description": "Vortos DBAL persistence — PostgreSQL write side via Doctrine DBAL",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Vortos\\PersistenceDbal\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.2",
+        "vortos/vortos-persistence": "^1.0",
+        "doctrine/dbal": "^4.4"
+    }
+}
