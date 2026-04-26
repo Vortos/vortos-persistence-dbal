@@ -55,7 +55,8 @@ final class DbalPersistenceExtension extends Extension
             ->setFactory([ConnectionFactory::class, 'fromDsn'])
             ->setArguments([$dsn])
             ->setShared(true)
-            ->setPublic(true);
+            ->setPublic(true)
+            ->setLazy(true);
 
         $container->register(UnitOfWork::class, UnitOfWork::class)
             ->setArgument('$connection', new Reference(Connection::class))
