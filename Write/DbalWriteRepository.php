@@ -210,7 +210,7 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
         $row = $this->toRow($aggregate);
 
         if ($aggregate->getVersion() === 0) {
-            $this->connection->insert($this->tableName(), $row);
+            $this->connection->insert($this->tableName(), $row, $this->columnMap());
             $aggregate->incrementVersion();
             return;
         }
@@ -221,10 +221,11 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
 
         $qb = $this->connection->createQueryBuilder();
         $qb->update($this->tableName());
-
+        
+        $types = $this->columnMap();
         foreach ($row as $column => $value) {
             $qb->set($column, ':' . $column);
-            $qb->setParameter($column, $value);
+            $qb->setParameter($column, $value, $types[$column] ?? null);
         }
 
         $qb->set('version', 'version + 1')
@@ -297,10 +298,26 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             return;
         }
 
-        $rows = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
-        $columns = array_keys($rows[0]);
-        $placeholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
-        $placeholders = implode(', ', array_fill(0, count($rows), $placeholder));
+        $types = $this->columnMap();
+        $rows  = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+
+        $preparedRows = array_map(function (array $row) use ($types): array {
+            foreach ($row as $col => $value) {
+                if (
+                    isset($types[$col])
+                    && $types[$col] === \Doctrine\DBAL\Types\Types::JSON
+                    && is_array($value)
+                ) {
+                    $row[$col] = json_encode($value);
+                }
+            }
+            return $row;
+        }, $rows);
+
+        $columns      = array_keys($preparedRows[0]);
+        $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
+        $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
+        $flatValues   = array_merge(...array_map('array_values', $preparedRows));
 
         $sql = sprintf(
             'INSERT INTO %s (%s) VALUES %s',
@@ -308,8 +325,6 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             implode(', ', $columns),
             $placeholders,
         );
-
-        $flatValues = array_merge(...array_map('array_values', $rows));
 
         $this->connection->executeStatement($sql, $flatValues);
 
@@ -339,26 +354,39 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
             return;
         }
 
-        // No optimistic lock — use only for projections or idempotent bulk writes.
-        $rows = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
-        $columns = array_keys($rows[0]);
-        $placeholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
-        $placeholders = implode(', ', array_fill(0, count($rows), $placeholder));
+        $types = $this->columnMap();
+        $rows  = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
 
-        $setClauses = array_map(
+        $preparedRows = array_map(function (array $row) use ($types): array {
+            foreach ($row as $col => $value) {
+                if (
+                    isset($types[$col])
+                    && $types[$col] === \Doctrine\DBAL\Types\Types::JSON
+                    && is_array($value)
+                ) {
+                    $row[$col] = json_encode($value);
+                }
+            }
+            return $row;
+        }, $rows);
+
+        $columns     = array_keys($preparedRows[0]);
+        $placeholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
+        $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
+        $flatValues   = array_merge(...array_map('array_values', $preparedRows));
+
+        $setClauses = implode(', ', array_map(
             fn(string $col) => $col . ' = EXCLUDED.' . $col,
             array_filter($columns, fn(string $col) => $col !== 'id'),
-        );
+        ));
 
         $sql = sprintf(
             'INSERT INTO %s (%s) VALUES %s ON CONFLICT (id) DO UPDATE SET %s',
             $this->tableName(),
             implode(', ', $columns),
             $placeholders,
-            implode(', ', $setClauses),
+            $setClauses,
         );
-
-        $flatValues = array_merge(...array_map('array_values', $rows));
 
         $this->connection->executeStatement($sql, $flatValues);
     }
