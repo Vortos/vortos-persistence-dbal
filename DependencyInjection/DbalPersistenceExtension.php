@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceDbal\Connection\ConnectionFactory;
+use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
 
 /**
@@ -63,6 +64,10 @@ final class DbalPersistenceExtension extends Extension
             ->setPublic(false);
 
         $container->setAlias(UnitOfWorkInterface::class, UnitOfWork::class)
+            ->setPublic(false);
+
+        $container->register(DatabaseHealthCheck::class, DatabaseHealthCheck::class)
+            ->setArgument('$connection', new Reference(Connection::class))
             ->setPublic(false);
     }
 }
