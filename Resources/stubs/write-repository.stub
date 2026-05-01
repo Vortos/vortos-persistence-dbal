@@ -1,0 +1,46 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{Namespace}}\Infrastructure\Repository;
+
+use Doctrine\DBAL\Types\Types;
+use Vortos\Domain\Aggregate\AggregateRoot;
+use Vortos\PersistenceDbal\Write\PostgresWriteRepository;
+use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}};
+use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}}Id;
+use {{AggregateNamespace}}\Domain\Repository\{{AggregateClass}}RepositoryInterface;
+
+final class {{AggregateClass}}Repository extends PostgresWriteRepository implements {{AggregateClass}}RepositoryInterface
+{
+    protected function tableName(): string
+    {
+        return '{{TableName}}';
+    }
+
+    protected function columnMap(): array
+    {
+        return [
+            'id'      => Types::STRING,
+            'version' => Types::INTEGER,
+        ];
+    }
+
+    protected function toRow(AggregateRoot $aggregate): array
+    {
+        assert($aggregate instanceof {{AggregateClass}});
+
+        return [
+            'id'      => (string) $aggregate->getId(),
+            'version' => $aggregate->getVersion(),
+        ];
+    }
+
+    protected function fromRow(array $row): AggregateRoot
+    {
+        return {{AggregateClass}}::reconstruct(
+            {{AggregateClass}}Id::fromString($row['id']),
+            (int) $row['version'],
+        );
+    }
+}
