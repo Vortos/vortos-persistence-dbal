@@ -28,7 +28,7 @@ final class DatabaseHealthCheck implements HealthCheckInterface
 
             return new HealthResult($this->name(), true, $this->ms($start));
         } catch (\Throwable $e) {
-            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage());
+            return new HealthResult($this->name(), false, $this->ms($start), $e->getMessage(), 'database_unreachable');
         }
     }
 
