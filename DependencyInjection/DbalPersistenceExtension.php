@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceDbal\DependencyInjection;
 
+use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -11,7 +12,9 @@ use Symfony\Component\DependencyInjection\Reference;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceDbal\Connection\ConnectionFactory;
 use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
+use Vortos\PersistenceDbal\Tracing\TracingDbalMiddleware;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
+use Vortos\Tracing\Contract\TracingInterface;
 
 /**
  * Wires DBAL-specific services.
@@ -52,9 +55,22 @@ final class DbalPersistenceExtension extends Extension
     {
         $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
 
+        // TracingDbalMiddleware — wraps every DBAL query in a span.
+        // TracingInterface is always registered (defaults to NoOpTracer).
+        $container->register(TracingDbalMiddleware::class, TracingDbalMiddleware::class)
+            ->setArgument('$tracer', new Reference(TracingInterface::class))
+            ->setShared(true)
+            ->setPublic(false);
+
+        // DBAL Configuration with tracing middleware attached
+        $container->register(Configuration::class, Configuration::class)
+            ->addMethodCall('setMiddlewares', [[new Reference(TracingDbalMiddleware::class)]])
+            ->setShared(true)
+            ->setPublic(false);
+
         $container->register(Connection::class, Connection::class)
             ->setFactory([ConnectionFactory::class, 'fromDsn'])
-            ->setArguments([$dsn])
+            ->setArguments([$dsn, new Reference(Configuration::class)])
             ->setShared(true)
             ->setPublic(true)
             ->setLazy(true);

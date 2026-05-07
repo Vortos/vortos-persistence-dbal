@@ -11,6 +11,7 @@
     "require": {
         "php": ">=8.2",
         "vortos/vortos-persistence": "^1.0",
+        "vortos/vortos-tracing": "^1.0",
         "doctrine/dbal": "^4.4"
     },
     "extra": {

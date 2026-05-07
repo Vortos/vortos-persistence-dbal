@@ -7,6 +7,7 @@ namespace Vortos\PersistenceDbal\DependencyInjection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
+use Vortos\PersistenceDbal\N1Detection\N1DetectionCompilerPass;
 
 /**
  * DBAL persistence package.
@@ -27,6 +28,6 @@ final class DbalPersistencePackage implements PackageInterface
 
     public function build(ContainerBuilder $container): void
     {
-        // No compiler passes needed.
+        $container->addCompilerPass(new N1DetectionCompilerPass());
     }
 }

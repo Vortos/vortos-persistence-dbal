@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vortos\PersistenceDbal\Connection;
 
+use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception as DbalException;
@@ -64,7 +65,7 @@ final class ConnectionFactory
      *
      * @throws DbalException If the DSN is malformed or the driver is unsupported
      */
-    public static function fromDsn(string $dsn): Connection
+    public static function fromDsn(string $dsn, ?Configuration $configuration = null): Connection
     {
         if (trim($dsn) === '') {
             throw new \RuntimeException('The DBAL persistence adapter requires VORTOS_WRITE_DB_DSN to be set.');
@@ -81,7 +82,7 @@ final class ConnectionFactory
 
         $params = $parser->parse($dsn);
 
-        return DriverManager::getConnection($params);
+        return DriverManager::getConnection($params, $configuration);
     }
 
     /**
