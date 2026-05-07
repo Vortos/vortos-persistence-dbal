@@ -21,13 +21,13 @@ use Doctrine\DBAL\Tools\DsnParser;
  *
  * ## Standard usage (12-factor apps)
  *
- * Set a single DATABASE_URL environment variable:
+ * Set a single VORTOS_WRITE_DB_DSN environment variable:
  *
- *   DATABASE_URL=pgsql://postgres:secret@write_db:5432/squaura
+ *   VORTOS_WRITE_DB_DSN=pgsql://postgres:secret@write_db:5432/squaura
  *
  * Then in config/persistence.php:
  *
- *   $config->writeDsn($_ENV['DATABASE_URL']);
+ *   $config->writeDsn($_ENV['VORTOS_WRITE_DB_DSN']);
  *
  * ## Supported DSN drivers
  *
@@ -66,6 +66,10 @@ final class ConnectionFactory
      */
     public static function fromDsn(string $dsn): Connection
     {
+        if (trim($dsn) === '') {
+            throw new \RuntimeException('The DBAL persistence adapter requires VORTOS_WRITE_DB_DSN to be set.');
+        }
+
         $parser = new DsnParser([
             'pgsql'    => 'pdo_pgsql',
             'postgres' => 'pdo_pgsql',

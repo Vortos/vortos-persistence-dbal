@@ -50,7 +50,7 @@ final class DbalPersistenceExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $dsn = $container->getParameter('vortos.persistence.write_dsn');
+        $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
 
         $container->register(Connection::class, Connection::class)
             ->setFactory([ConnectionFactory::class, 'fromDsn'])
