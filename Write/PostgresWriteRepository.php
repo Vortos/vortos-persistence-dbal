@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Vortos\PersistenceDbal\Write;
 
 use Vortos\Domain\Aggregate\AggregateRoot;
+use Vortos\Domain\Repository\Exception\OptimisticLockException;
 
 /**
  * PostgreSQL-optimised write repository.
@@ -98,7 +99,15 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
 
         $flatValues = array_merge(...array_map('array_values', $rows));
 
-        $this->connection->executeStatement($sql, $flatValues);
+        $affected = $this->connection->executeStatement($sql, $flatValues);
+
+        if ($affected !== count($aggregates)) {
+            throw new OptimisticLockException(sprintf(
+                'Batch update conflict: expected %d row(s) affected, got %d. Version mismatch on one or more aggregates.',
+                count($aggregates),
+                $affected,
+            ));
+        }
 
         foreach ($aggregates as $aggregate) {
             $aggregate->incrementVersion();
