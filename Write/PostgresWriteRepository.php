@@ -77,24 +77,26 @@ abstract class PostgresWriteRepository extends DbalWriteRepository
             fn(string $col) => !in_array($col, ['id', 'version'], true),
         );
 
+        $quotedTable = $this->connection->quoteIdentifier($this->tableName());
+
         $setClauses = array_map(
-            fn(string $col) => $col . ' = v.' . $col,
+            fn(string $col) => $this->connection->quoteIdentifier($col) . ' = v.' . $this->connection->quoteIdentifier($col),
             $updateColumns,
         );
-        $setClauses[] = 'version = ' . $this->tableName() . '.version + 1';
+        $setClauses[] = 'version = ' . $quotedTable . '.version + 1';
 
         $placeholder = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
         $valuePlaceholders = implode(', ', array_fill(0, count($rows), $placeholder));
-        $columnAlias = implode(', ', $columns);
+        $columnAlias = implode(', ', array_map(fn(string $c) => $this->connection->quoteIdentifier($c), $columns));
 
         $sql = sprintf(
             'UPDATE %s SET %s FROM (VALUES %s) AS v(%s) WHERE %s.id = v.id AND %s.version = v.version',
-            $this->tableName(),
+            $quotedTable,
             implode(', ', $setClauses),
             $valuePlaceholders,
             $columnAlias,
-            $this->tableName(),
-            $this->tableName(),
+            $quotedTable,
+            $quotedTable,
         );
 
         $flatValues = array_merge(...array_map('array_values', $rows));

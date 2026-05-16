@@ -319,10 +319,13 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
         $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
         $flatValues   = array_merge(...array_map('array_values', $preparedRows));
 
+        $quotedTable   = $this->connection->quoteIdentifier($this->tableName());
+        $quotedColumns = implode(', ', array_map(fn(string $c) => $this->connection->quoteIdentifier($c), $columns));
+
         $sql = sprintf(
             'INSERT INTO %s (%s) VALUES %s',
-            $this->tableName(),
-            implode(', ', $columns),
+            $quotedTable,
+            $quotedColumns,
             $placeholders,
         );
 
@@ -375,15 +378,18 @@ abstract class DbalWriteRepository implements WriteRepositoryInterface
         $placeholders = implode(', ', array_fill(0, count($preparedRows), $placeholder));
         $flatValues   = array_merge(...array_map('array_values', $preparedRows));
 
+        $quotedTable   = $this->connection->quoteIdentifier($this->tableName());
+        $quotedColumns = implode(', ', array_map(fn(string $c) => $this->connection->quoteIdentifier($c), $columns));
+
         $setClauses = implode(', ', array_map(
-            fn(string $col) => $col . ' = EXCLUDED.' . $col,
+            fn(string $col) => $this->connection->quoteIdentifier($col) . ' = EXCLUDED.' . $this->connection->quoteIdentifier($col),
             array_filter($columns, fn(string $col) => $col !== 'id'),
         ));
 
         $sql = sprintf(
             'INSERT INTO %s (%s) VALUES %s ON CONFLICT (id) DO UPDATE SET %s',
-            $this->tableName(),
-            implode(', ', $columns),
+            $quotedTable,
+            $quotedColumns,
             $placeholders,
             $setClauses,
         );
