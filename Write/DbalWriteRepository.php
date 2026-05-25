@@ -103,7 +103,7 @@ use Vortos\Domain\Repository\WriteRepositoryInterface;
  */
 abstract class DbalWriteRepository implements WriteRepositoryInterface
 {
-    public function __construct(protected Connection $connection) {}
+    public function __construct(private readonly Connection $connection) {}
 
     /**
      * The database table name for this repository.

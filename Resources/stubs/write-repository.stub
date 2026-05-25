@@ -7,9 +7,9 @@ namespace {{Namespace}}\Infrastructure\Repository;
 use Doctrine\DBAL\Types\Types;
 use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\PersistenceDbal\Write\PostgresWriteRepository;
-use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}};
-use {{AggregateNamespace}}\Domain\Entity\{{AggregateClass}}Id;
-use {{AggregateNamespace}}\Domain\Repository\{{AggregateClass}}RepositoryInterface;
+use {{AggregateEntityNamespace}}\{{AggregateClass}};
+use {{AggregateEntityNamespace}}\{{AggregateClass}}Id;
+use {{AggregateRepositoryNamespace}}\{{AggregateClass}}RepositoryInterface;
 
 final class {{AggregateClass}}Repository extends PostgresWriteRepository implements {{AggregateClass}}RepositoryInterface
 {
