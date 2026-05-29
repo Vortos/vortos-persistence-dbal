@@ -2,23 +2,25 @@
 
 declare(strict_types=1);
 
-namespace {{Namespace}}\Infrastructure\Repository;
+namespace {{Namespace}}\Infrastructure\Database;
 
 use Doctrine\DBAL\Types\Types;
 use Vortos\Domain\Aggregate\AggregateRoot;
-use Vortos\PersistenceDbal\Write\PostgresWriteRepository;
+use Vortos\PersistenceDbal\Attribute\UsesDbalMapper;
+use Vortos\PersistenceDbal\Write\DbalMapper;
+use Vortos\PersistenceDbal\Write\DbalStore;
 use {{AggregateEntityNamespace}}\{{AggregateClass}};
 use {{AggregateEntityNamespace}}\{{AggregateClass}}Id;
 use {{AggregateRepositoryNamespace}}\{{AggregateClass}}RepositoryInterface;
 
-final class {{AggregateClass}}Repository extends PostgresWriteRepository implements {{AggregateClass}}RepositoryInterface
+final class {{AggregateClass}}Mapper implements DbalMapper
 {
-    protected function tableName(): string
+    public function tableName(): string
     {
         return '{{TableName}}';
     }
 
-    protected function columnMap(): array
+    public function columnMap(): array
     {
         return [
             'id'      => Types::STRING,
@@ -26,7 +28,7 @@ final class {{AggregateClass}}Repository extends PostgresWriteRepository impleme
         ];
     }
 
-    protected function toRow(AggregateRoot $aggregate): array
+    public function toRow(AggregateRoot $aggregate): array
     {
         assert($aggregate instanceof {{AggregateClass}});
 
@@ -36,11 +38,48 @@ final class {{AggregateClass}}Repository extends PostgresWriteRepository impleme
         ];
     }
 
-    protected function fromRow(array $row): AggregateRoot
+    public function fromRow(array $row): AggregateRoot
     {
         return {{AggregateClass}}::reconstruct(
             {{AggregateClass}}Id::fromString($row['id']),
             (int) $row['version'],
         );
     }
+}
+
+#[UsesDbalMapper({{AggregateClass}}Mapper::class)]
+final class {{AggregateClass}}Repository implements {{AggregateClass}}RepositoryInterface
+{
+    public function __construct(private readonly DbalStore $store) {}
+
+    public function save({{AggregateClass}} ${{aggregateVar}}): void
+    {
+        $this->store->save(${{aggregateVar}});
+    }
+
+    public function delete({{AggregateClass}} ${{aggregateVar}}): void
+    {
+        $this->store->delete(${{aggregateVar}});
+    }
+
+    public function findById({{AggregateClass}}Id $id): ?{{AggregateClass}}
+    {
+        /** @var {{AggregateClass}}|null */
+        return $this->store->find($id);
+    }
+
+    // Add custom query methods here. Example:
+    //
+    // public function findByEmail(string $email): ?{{AggregateClass}}
+    // {
+    //     $row = $this->store->createQueryBuilder()
+    //         ->select('*')
+    //         ->from($this->store->mapper()->tableName())
+    //         ->where('email = :email')
+    //         ->setParameter('email', $email)
+    //         ->executeQuery()
+    //         ->fetchAssociative();
+    //
+    //     return $row !== false ? $this->store->mapper()->fromRow($row) : null;
+    // }
 }

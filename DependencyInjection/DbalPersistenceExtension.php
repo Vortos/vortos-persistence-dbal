@@ -9,9 +9,11 @@ use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Reference;
+use Psr\Log\LoggerInterface;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceDbal\Connection\ConnectionFactory;
 use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
+use Vortos\PersistenceDbal\Logging\LoggingDbalMiddleware;
 use Vortos\PersistenceDbal\Tracing\TracingDbalMiddleware;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -55,6 +57,10 @@ final class DbalPersistenceExtension extends Extension
     {
         $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
 
+        if (!$container->hasParameter('vortos.persistence.slow_query_threshold_ms')) {
+            $container->setParameter('vortos.persistence.slow_query_threshold_ms', 100);
+        }
+
         // TracingDbalMiddleware — wraps every DBAL query in a span.
         // TracingInterface is always registered (defaults to NoOpTracer).
         $container->register(TracingDbalMiddleware::class, TracingDbalMiddleware::class)
@@ -62,9 +68,20 @@ final class DbalPersistenceExtension extends Extension
             ->setShared(true)
             ->setPublic(false);
 
-        // DBAL Configuration with tracing middleware attached
+        // LoggingDbalMiddleware — logs slow queries and errors.
+        // LoggerInterface is always available in Symfony.
+        $container->register(LoggingDbalMiddleware::class, LoggingDbalMiddleware::class)
+            ->setArgument('$logger', new Reference(LoggerInterface::class))
+            ->setArgument('$slowQueryThresholdMs', '%vortos.persistence.slow_query_threshold_ms%')
+            ->setShared(true)
+            ->setPublic(false);
+
+        // DBAL Configuration with tracing and logging middleware attached
         $container->register(Configuration::class, Configuration::class)
-            ->addMethodCall('setMiddlewares', [[new Reference(TracingDbalMiddleware::class)]])
+            ->addMethodCall('setMiddlewares', [[
+                new Reference(TracingDbalMiddleware::class),
+                new Reference(LoggingDbalMiddleware::class),
+            ]])
             ->setShared(true)
             ->setPublic(false);
 

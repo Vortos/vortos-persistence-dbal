@@ -16,14 +16,14 @@ use Vortos\Domain\Repository\ReadRepositoryInterface;
  * or in a dedicated PostgreSQL read replica. The read model is a flat table —
  * projections write to it directly; query handlers read from it.
  *
- * ## When to use this vs MongoReadRepository
+ * ## When to use this vs a Mongo read repository
  *
  * Use DbalReadRepository when:
  *   - Your read model needs complex joins or CTEs that MongoDB cannot express
  *   - Your team operates a single PostgreSQL database and doesn't want to run MongoDB
  *   - You need full-text search backed by pg_trgm or tsvector
  *
- * Use MongoReadRepository when:
+ * Use a Mongo read repository when:
  *   - Your read model is a self-contained document (a single aggregate's projection)
  *   - You expect very high read throughput and want a dedicated read store
  *   - Your projection shape changes frequently — schema migration is cheaper in MongoDB
