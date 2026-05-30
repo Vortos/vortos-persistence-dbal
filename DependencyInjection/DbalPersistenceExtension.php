@@ -14,6 +14,7 @@ use Vortos\Persistence\Transaction\UnitOfWorkInterface;
 use Vortos\PersistenceDbal\Connection\ConnectionFactory;
 use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
 use Vortos\PersistenceDbal\Logging\LoggingDbalMiddleware;
+use Vortos\PersistenceDbal\Schema\FrameworkPrefix;
 use Vortos\PersistenceDbal\Tracing\TracingDbalMiddleware;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
 use Vortos\Tracing\Contract\TracingInterface;
@@ -56,6 +57,8 @@ final class DbalPersistenceExtension extends Extension
     public function load(array $configs, ContainerBuilder $container): void
     {
         $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
+
+        $container->setParameter('vortos.db.framework_table_prefix', FrameworkPrefix::fromDsn($dsn));
 
         if (!$container->hasParameter('vortos.persistence.slow_query_threshold_ms')) {
             $container->setParameter('vortos.persistence.slow_query_threshold_ms', 100);
