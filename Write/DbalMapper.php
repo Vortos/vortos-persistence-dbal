@@ -13,6 +13,12 @@ use Vortos\Domain\Aggregate\AggregateRoot;
  * which mapper your repository uses via #[UsesDbalMapper(YourMapper::class)].
  * The framework auto-wires a DbalStore with your mapper into the repository.
  *
+ * ## lock_version is handled automatically
+ *
+ * Do NOT include 'lock_version' in columnMap(), toRow(), or fromRow().
+ * DbalStore injects it on INSERT, applies it in WHERE on UPDATE/DELETE,
+ * and restores it on the aggregate after find() via Closure::bind().
+ *
  * ## Example
  *
  *   final class UserMapper implements DbalMapper
@@ -20,18 +26,23 @@ use Vortos\Domain\Aggregate\AggregateRoot;
  *       public function tableName(): string { return 'users'; }
  *
  *       public function columnMap(): array {
- *           return ['id' => Types::STRING, 'email' => Types::STRING, 'version' => Types::INTEGER];
+ *           return ['id' => Types::STRING, 'email' => Types::STRING];
  *       }
  *
  *       public function toRow(AggregateRoot $aggregate): array {
  *           assert($aggregate instanceof User);
- *           return ['id' => (string) $aggregate->getId(), 'email' => (string) $aggregate->getEmail(), 'version' => $aggregate->getVersion()];
+ *           return ['id' => (string) $aggregate->getId(), 'email' => (string) $aggregate->getEmail()];
  *       }
  *
  *       public function fromRow(array $row): AggregateRoot {
- *           return User::reconstruct(UserId::fromString($row['id']), new Email($row['email']), (int) $row['version']);
+ *           return User::reconstruct(UserId::fromString($row['id']), new Email($row['email']));
  *       }
  *   }
+ *
+ * ## Custom queries
+ *
+ * Use $store->hydrate($row) instead of $store->mapper()->fromRow($row) in custom query methods.
+ * hydrate() calls fromRow() and then restores lock_version automatically.
  */
 interface DbalMapper
 {
@@ -42,7 +53,7 @@ interface DbalMapper
 
     /**
      * Map of column names to DBAL Types constants.
-     * MUST include 'version' => Types::INTEGER.
+     * Do NOT include 'lock_version' — DbalStore injects it automatically.
      *
      * @return array<string, string>
      */
@@ -50,16 +61,17 @@ interface DbalMapper
 
     /**
      * Map an aggregate to a flat database row array.
-     * Keys must exactly match columnMap(). Include 'version'.
-     * Do NOT call incrementVersion() here — DbalStore handles that.
+     * Keys must exactly match columnMap().
+     * Do NOT include 'lock_version' and do NOT call incrementVersion() — DbalStore handles both.
      *
      * @return array<string, mixed>
      */
     public function toRow(AggregateRoot $aggregate): array;
 
     /**
-     * Reconstruct an aggregate from a flat database row array.
-     * Must restore the version field via a reconstruct() named constructor.
+     * Reconstruct an aggregate from a flat database row array (without restoring lock_version).
+     * DbalStore calls hydrate() which applies lock_version after fromRow() returns.
+     * Do NOT call restoreVersion() here.
      *
      * @param array<string, mixed> $row
      */

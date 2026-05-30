@@ -36,7 +36,7 @@ class PostgresStore extends DbalStore
      * Update multiple aggregates using PostgreSQL's UPDATE FROM VALUES syntax.
      *
      * Executes a single SQL statement regardless of how many aggregates are passed.
-     * Applies optimistic locking via WHERE version = v.version per row.
+     * Applies optimistic locking via WHERE lock_version = v.lock_version per row.
      *
      * Unlike the per-aggregate save() path, this does NOT throw per-aggregate
      * OptimisticLockException — it throws if the total affected count mismatches,
@@ -51,13 +51,13 @@ class PostgresStore extends DbalStore
             return;
         }
 
-        $types   = $this->mapper()->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->mapper()->toRow($a), $aggregates);
+        $types   = $this->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
         $columns = array_keys($rows[0]);
 
         $updateColumns = array_filter(
             $columns,
-            fn(string $col) => !in_array($col, ['id', 'version'], true),
+            fn(string $col) => !in_array($col, ['id', 'lock_version'], true),
         );
 
         $quotedTable = $this->connection()->quoteIdentifier($this->mapper()->tableName());
@@ -66,7 +66,7 @@ class PostgresStore extends DbalStore
             fn(string $col) => $this->connection()->quoteIdentifier($col) . ' = v.' . $this->connection()->quoteIdentifier($col),
             $updateColumns,
         );
-        $setClauses[] = 'version = ' . $quotedTable . '.version + 1';
+        $setClauses[] = 'lock_version = ' . $quotedTable . '.lock_version + 1';
 
         $placeholder       = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
         $valuePlaceholders = implode(', ', array_fill(0, count($rows), $placeholder));
@@ -76,7 +76,7 @@ class PostgresStore extends DbalStore
         ));
 
         $sql = sprintf(
-            'UPDATE %s SET %s FROM (VALUES %s) AS v(%s) WHERE %s.id = v.id AND %s.version = v.version',
+            'UPDATE %s SET %s FROM (VALUES %s) AS v(%s) WHERE %s.id = v.id AND %s.lock_version = v.lock_version',
             $quotedTable,
             implode(', ', $setClauses),
             $valuePlaceholders,
@@ -127,8 +127,8 @@ class PostgresStore extends DbalStore
             return;
         }
 
-        $types   = $this->mapper()->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->mapper()->toRow($a), $aggregates);
+        $types   = $this->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
         $columns = array_keys($rows[0]);
 
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';

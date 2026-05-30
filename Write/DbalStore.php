@@ -29,12 +29,12 @@ use Vortos\Domain\Repository\Exception\OptimisticLockException;
  *
  * Every table using this store MUST have these columns:
  *
- *   id      UUID or VARCHAR(36)  PRIMARY KEY
- *   version INTEGER              NOT NULL DEFAULT 0
+ *   id           UUID or VARCHAR(36)  PRIMARY KEY
+ *   lock_version INTEGER              NOT NULL DEFAULT 0
  *
  * ## Optimistic locking
  *
- * save() uses the version column to detect concurrent modifications.
+ * save() uses the lock_version column to detect concurrent modifications.
  * delete() uses a two-query failure path to distinguish AggregateNotFoundException
  * from OptimisticLockException — zero overhead on the happy path.
  *
@@ -48,35 +48,74 @@ use Vortos\Domain\Repository\Exception\OptimisticLockException;
  * PostgresStore extends this class and overrides batchUpdate() with a single-query
  * UPDATE FROM VALUES implementation, and adds batchUpsert().
  */
-final class DbalStore
+class DbalStore
 {
+    private readonly \Closure $restoreLockVersion;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly DbalMapper $mapper,
-    ) {}
+    ) {
+        $this->restoreLockVersion = \Closure::bind(
+            static function (AggregateRoot $agg, int $v): void {
+                $agg->restoreVersion($v);
+            },
+            null,
+            AggregateRoot::class,
+        );
+    }
+
+    /**
+     * Reconstruct an aggregate from a database row, restoring its lock_version automatically.
+     * Use this in custom query methods instead of $this->mapper()->fromRow($row) directly.
+     */
+    public function hydrate(array $row): AggregateRoot
+    {
+        $aggregate = $this->mapper->fromRow($row);
+        ($this->restoreLockVersion)($aggregate, (int) $row['lock_version']);
+        return $aggregate;
+    }
+
+    /**
+     * Returns a row array from the mapper with lock_version injected from the aggregate.
+     * Used internally by batch operations in this class and PostgresStore.
+     */
+    protected function toRow(AggregateRoot $aggregate): array
+    {
+        return $this->mapper->toRow($aggregate) + ['lock_version' => $aggregate->getVersion()];
+    }
+
+    /**
+     * Returns the column type map from the mapper with lock_version type injected.
+     * Used internally by batch operations in this class and PostgresStore.
+     */
+    protected function columnMap(): array
+    {
+        return $this->mapper->columnMap() + ['lock_version' => Types::INTEGER];
+    }
 
     /**
      * Persist an aggregate — handles both insert and update.
      *
      * Uses AggregateRoot::isNew() to detect insert vs update.
-     * UPDATE applies an optimistic lock: WHERE version = :expectedVersion.
+     * UPDATE applies an optimistic lock: WHERE lock_version = :expectedVersion.
      * If zero rows affected, throws OptimisticLockException.
      * Calls incrementVersion() on the aggregate after a successful save.
      */
     public function save(AggregateRoot $aggregate): void
     {
-        $row = $this->mapper->toRow($aggregate);
-
         if ($aggregate->isNew()) {
-            $this->connection->insert($this->mapper->tableName(), $row, $this->mapper->columnMap());
+            $this->connection->insert(
+                $this->mapper->tableName(),
+                $this->toRow($aggregate),
+                $this->columnMap(),
+            );
             $aggregate->incrementVersion();
             return;
         }
 
         $expectedVersion = $aggregate->getVersion();
-
-        unset($row['version']);
-
+        $row   = $this->mapper->toRow($aggregate);
         $qb    = $this->connection->createQueryBuilder();
         $types = $this->mapper->columnMap();
 
@@ -87,9 +126,9 @@ final class DbalStore
             $qb->setParameter($column, $value, $types[$column] ?? null);
         }
 
-        $qb->set('version', 'version + 1')
+        $qb->set('lock_version', 'lock_version + 1')
             ->where('id = :id')
-            ->andWhere('version = :expectedVersion')
+            ->andWhere('lock_version = :expectedVersion')
             ->setParameter('id', (string) $aggregate->getId())
             ->setParameter('expectedVersion', $expectedVersion);
 
@@ -119,9 +158,9 @@ final class DbalStore
         $affected = $this->connection->createQueryBuilder()
             ->delete($this->mapper->tableName())
             ->where('id = :id')
-            ->andWhere('version = :version')
+            ->andWhere('lock_version = :lock_version')
             ->setParameter('id', (string) $aggregate->getId())
-            ->setParameter('version', $aggregate->getVersion())
+            ->setParameter('lock_version', $aggregate->getVersion())
             ->executeStatement();
 
         if ($affected === 0) {
@@ -160,8 +199,8 @@ final class DbalStore
             return;
         }
 
-        $types   = $this->mapper->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->mapper->toRow($a), $aggregates);
+        $types   = $this->columnMap();
+        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
         $columns = array_keys($rows[0]);
 
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
@@ -254,7 +293,7 @@ final class DbalStore
             ->executeQuery()
             ->fetchAssociative();
 
-        return $row !== false ? $this->mapper->fromRow($row) : null;
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     /**
@@ -266,7 +305,8 @@ final class DbalStore
     }
 
     /**
-     * Returns the mapper. Use mapper()->tableName() and mapper()->fromRow() in custom queries.
+     * Returns the mapper. Use mapper()->tableName() in custom queries.
+     * To hydrate an aggregate from a row, use hydrate($row) — not mapper()->fromRow($row) directly.
      */
     public function mapper(): DbalMapper
     {
