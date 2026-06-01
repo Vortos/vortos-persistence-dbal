@@ -7,26 +7,48 @@ namespace Vortos\PersistenceDbal\Schema;
 /**
  * Resolves framework-owned table names to their platform-specific qualified form.
  *
- * PostgreSQL: vortos.<table>   — tables live in the 'vortos' schema
- * All others: vortos_<table>   — tables live in the default schema with a prefix
+ * Two modes:
+ *   'schema' — PostgreSQL schema: vortos.<table>  (tables live in the 'vortos' schema)
+ *   'prefix' — Underscore prefix:  vortos_<table> (tables live in the default schema)
  *
- * The prefix is determined once from the DSN at container compile time via
- * DbalPersistenceExtension, which sets the 'vortos.db.framework_table_prefix'
- * container parameter. No runtime branching occurs.
+ * The mode is set explicitly in config/persistence.php via
+ * VortosPersistenceConfig::frameworkTableMode() and compiled into the
+ * 'vortos.db.framework_table_prefix' container parameter once at build time.
+ * No runtime branching or environment variable reading occurs.
  */
 final class FrameworkPrefix
 {
     private function __construct() {}
 
     /**
-     * Derive the framework table prefix from a DSN string.
+     * Resolve the framework prefix from an explicit mode string.
+     *
+     * This is the primary path. The mode is declared in config/persistence.php:
+     *
+     *   $config->frameworkTableMode('schema');  // PostgreSQL schema mode
+     *   $config->frameworkTableMode('prefix');  // Underscore prefix mode
+     */
+    public static function fromMode(string $mode): string
+    {
+        return match ($mode) {
+            'schema' => 'vortos.',
+            'prefix' => 'vortos_',
+            default  => throw new \InvalidArgumentException(
+                sprintf('Unknown framework table mode "%s". Must be "schema" or "prefix".', $mode)
+            ),
+        };
+    }
+
+    /**
+     * Derive the framework prefix from a DSN string.
+     *
+     * Used by tooling (e.g. vortos:setup) to suggest the correct mode when
+     * generating config/persistence.php. Not called during container compilation.
      *
      * PostgreSQL defaults to schema mode ('vortos.'). Add ?vortos_prefix=true
-     * to the DSN to use underscore prefix mode instead ('vortos_'):
+     * to use underscore prefix mode instead:
      *
      *   pgsql://user:pass@localhost/mydb?vortos_prefix=true
-     *
-     * All other engines always use 'vortos_'.
      */
     public static function fromDsn(string $dsn): string
     {

@@ -56,9 +56,23 @@ final class DbalPersistenceExtension extends Extension
 
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $dsn = (string) $container->getParameter('vortos.persistence.write_dsn');
+        $dsn  = (string) $container->getParameter('vortos.persistence.write_dsn');
+        $mode = $container->hasParameter('vortos.persistence.framework_table_mode')
+            ? $container->getParameter('vortos.persistence.framework_table_mode')
+            : null;
 
-        $container->setParameter('vortos.db.framework_table_prefix', FrameworkPrefix::fromDsn($dsn));
+        if ($mode === null || $mode === '') {
+            throw new \RuntimeException(
+                "Framework table mode is not configured.\n" .
+                "Add the following to config/persistence.php:\n\n" .
+                "    \$config->frameworkTableMode('schema');  // PostgreSQL — tables in the vortos schema\n" .
+                "    \$config->frameworkTableMode('prefix');  // All other databases — vortos_ prefix\n\n" .
+                "This must be set explicitly so every process (web workers, queue workers, CI, migrations)\n" .
+                "compiles the container with the same table names regardless of environment variable availability."
+            );
+        }
+
+        $container->setParameter('vortos.db.framework_table_prefix', FrameworkPrefix::fromMode((string) $mode));
 
         if (!$container->hasParameter('vortos.persistence.slow_query_threshold_ms')) {
             $container->setParameter('vortos.persistence.slow_query_threshold_ms', 100);
