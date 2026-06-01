@@ -17,7 +17,7 @@
     "extra": {
         "vortos": {
             "package": "Vortos\\PersistenceDbal\\DependencyInjection\\DbalPersistencePackage",
-            "order": 70
+            "order": 15
         }
     }
 }
