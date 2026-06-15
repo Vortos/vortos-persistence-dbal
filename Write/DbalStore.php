@@ -12,6 +12,8 @@ use Vortos\Domain\Aggregate\AggregateRoot;
 use Vortos\Domain\Identity\AggregateId;
 use Vortos\Domain\Repository\Exception\AggregateNotFoundException;
 use Vortos\Domain\Repository\Exception\OptimisticLockException;
+use Vortos\Tenant\Exception\MissingTenantContextException;
+use Vortos\Tenant\TenantContext;
 
 /**
  * DBAL-backed persistence store.
@@ -52,9 +54,17 @@ class DbalStore
 {
     private readonly \Closure $restoreLockVersion;
 
+    /**
+     * @param TenantContext|null $tenantContext Ambient tenant — injected by the
+     *        compiler pass only when the repository is #[TenantScoped].
+     * @param string|null $tenantColumn The tenant column, or null when the
+     *        repository is not tenant-scoped (no stamping/filtering applied).
+     */
     public function __construct(
         private readonly Connection $connection,
         private readonly DbalMapper $mapper,
+        private readonly ?TenantContext $tenantContext = null,
+        private readonly ?string $tenantColumn = null,
     ) {
         $this->restoreLockVersion = \Closure::bind(
             static function (AggregateRoot $agg, int $v): void {
@@ -63,6 +73,61 @@ class DbalStore
             null,
             AggregateRoot::class,
         );
+    }
+
+    /**
+     * The concrete tenant id to stamp on / scope writes by, or null when this
+     * store is not tenant-scoped (caller skips all tenant handling).
+     *
+     * Writes always require a concrete tenant: system scope and an empty context
+     * both fail closed (use TenantContext::runAs() to write on a tenant's behalf).
+     *
+     * @throws MissingTenantContextException
+     */
+    protected function writeTenantId(): ?string
+    {
+        if ($this->tenantColumn === null) {
+            return null;
+        }
+
+        $decision = $this->tenantContext?->scopingDecision();
+        if ($decision === null || $decision === TenantContext::SYSTEM) {
+            throw MissingTenantContextException::forScopedAccess(static::class);
+        }
+
+        return $decision;
+    }
+
+    /**
+     * Append the tenant predicate to a write QueryBuilder (UPDATE/DELETE) so a
+     * write can never touch another tenant's row. No-op for unscoped stores.
+     */
+    private function scopeWrite(QueryBuilder $qb): void
+    {
+        $tenantId = $this->writeTenantId();
+        if ($tenantId === null) {
+            return;
+        }
+
+        $qb->andWhere("{$this->tenantColumn} = :__tenant")->setParameter('__tenant', $tenantId);
+    }
+
+    /**
+     * Stamp the tenant column onto an INSERT row. No-op for unscoped stores.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected function stampTenant(array $row): array
+    {
+        $tenantId = $this->writeTenantId();
+        if ($tenantId === null) {
+            return $row;
+        }
+
+        $row[$this->tenantColumn] = $tenantId;
+
+        return $row;
     }
 
     /**
@@ -107,7 +172,7 @@ class DbalStore
         if ($aggregate->isNew()) {
             $this->connection->insert(
                 $this->mapper->tableName(),
-                $this->toRow($aggregate),
+                $this->stampTenant($this->toRow($aggregate)),
                 $this->columnMap(),
             );
             $aggregate->incrementVersion();
@@ -132,6 +197,8 @@ class DbalStore
             ->setParameter('id', (string) $aggregate->getId())
             ->setParameter('expectedVersion', $expectedVersion);
 
+        $this->scopeWrite($qb);
+
         $affected = $qb->executeStatement();
 
         if ($affected === 0) {
@@ -155,22 +222,25 @@ class DbalStore
      */
     public function delete(AggregateRoot $aggregate): void
     {
-        $affected = $this->connection->createQueryBuilder()
+        $deleteQb = $this->connection->createQueryBuilder()
             ->delete($this->mapper->tableName())
             ->where('id = :id')
             ->andWhere('lock_version = :lock_version')
             ->setParameter('id', (string) $aggregate->getId())
-            ->setParameter('lock_version', $aggregate->getVersion())
-            ->executeStatement();
+            ->setParameter('lock_version', $aggregate->getVersion());
+        $this->scopeWrite($deleteQb);
+
+        $affected = $deleteQb->executeStatement();
 
         if ($affected === 0) {
-            $exists = (bool) $this->connection->createQueryBuilder()
+            $existsQb = $this->connection->createQueryBuilder()
                 ->select('1')
                 ->from($this->mapper->tableName())
                 ->where('id = :id')
-                ->setParameter('id', (string) $aggregate->getId())
-                ->executeQuery()
-                ->fetchOne();
+                ->setParameter('id', (string) $aggregate->getId());
+            $this->scopeWrite($existsQb);
+
+            $exists = (bool) $existsQb->executeQuery()->fetchOne();
 
             if (!$exists) {
                 throw AggregateNotFoundException::for(get_class($aggregate), (string) $aggregate->getId());
@@ -200,7 +270,7 @@ class DbalStore
         }
 
         $types   = $this->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $rows    = array_map(fn(AggregateRoot $a) => $this->stampTenant($this->toRow($a)), $aggregates);
         $columns = array_keys($rows[0]);
 
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
@@ -273,11 +343,13 @@ class DbalStore
 
         $stringIds = array_map(fn(AggregateId $id) => (string) $id, $ids);
 
-        $this->connection->createQueryBuilder()
+        $qb = $this->connection->createQueryBuilder()
             ->delete($this->mapper->tableName())
             ->where('id IN (:ids)')
-            ->setParameter('ids', $stringIds, ArrayParameterType::STRING)
-            ->executeStatement();
+            ->setParameter('ids', $stringIds, ArrayParameterType::STRING);
+        $this->scopeWrite($qb);
+
+        $qb->executeStatement();
     }
 
     /**
@@ -285,13 +357,14 @@ class DbalStore
      */
     public function find(AggregateId $id): ?AggregateRoot
     {
-        $row = $this->connection->createQueryBuilder()
+        $qb = $this->connection->createQueryBuilder()
             ->select('*')
             ->from($this->mapper->tableName())
             ->where('id = :id')
-            ->setParameter('id', (string) $id)
-            ->executeQuery()
-            ->fetchAssociative();
+            ->setParameter('id', (string) $id);
+        $this->scopeWrite($qb);
+
+        $row = $qb->executeQuery()->fetchAssociative();
 
         return $row !== false ? $this->hydrate($row) : null;
     }

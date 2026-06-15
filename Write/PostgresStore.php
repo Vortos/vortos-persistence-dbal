@@ -52,7 +52,7 @@ class PostgresStore extends DbalStore
         }
 
         $types   = $this->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $rows    = array_map(fn(AggregateRoot $a) => $this->stampTenant($this->toRow($a)), $aggregates);
         $columns = array_keys($rows[0]);
 
         $updateColumns = array_filter(
@@ -128,7 +128,7 @@ class PostgresStore extends DbalStore
         }
 
         $types   = $this->columnMap();
-        $rows    = array_map(fn(AggregateRoot $a) => $this->toRow($a), $aggregates);
+        $rows    = array_map(fn(AggregateRoot $a) => $this->stampTenant($this->toRow($a)), $aggregates);
         $columns = array_keys($rows[0]);
 
         $placeholder  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';

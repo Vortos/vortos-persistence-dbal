@@ -8,6 +8,9 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Vortos\Domain\Repository\PageResult;
 use Vortos\Domain\Repository\ReadRepositoryInterface;
+use Vortos\Tenant\Exception\MissingTenantContextException;
+use Vortos\Tenant\TenantContext;
+use Vortos\Tenant\TenantScopeResolver;
 
 /**
  * Abstract PostgreSQL-backed read repository.
@@ -85,7 +88,10 @@ use Vortos\Domain\Repository\ReadRepositoryInterface;
  */
 abstract class DbalReadRepository implements ReadRepositoryInterface
 {
-    public function __construct(protected readonly Connection $connection) {}
+    public function __construct(
+        protected readonly Connection $connection,
+        protected readonly ?TenantContext $tenantContext = null,
+    ) {}
 
     abstract protected function tableName(): string;
 
@@ -103,7 +109,7 @@ abstract class DbalReadRepository implements ReadRepositoryInterface
     public function findById(string $id): mixed
     {
         $row = $this->query()
-            ->where('id = :id')
+            ->andWhere('id = :id')
             ->setParameter('id', $id)
             ->fetchAssociative();
 
@@ -174,6 +180,8 @@ abstract class DbalReadRepository implements ReadRepositoryInterface
             ->select('COUNT(*)')
             ->from($this->tableName());
 
+        $this->applyTenantScope($qb);
+
         foreach ($criteria as $field => $value) {
             $param = 'p_' . $field;
             $qb->andWhere("{$field} = :{$param}")->setParameter($param, $value);
@@ -227,12 +235,51 @@ abstract class DbalReadRepository implements ReadRepositoryInterface
     /**
      * Returns a QueryBuilder pre-configured to SELECT * FROM this table.
      * Use for custom queries that findByCriteria() cannot express.
+     *
+     * When the repository is #[TenantScoped], the current tenant predicate is
+     * already applied — add further conditions with andWhere() (not where(),
+     * which would clear the tenant filter).
      */
     protected function query(): QueryBuilder
     {
-        return $this->connection->createQueryBuilder()
+        $qb = $this->connection->createQueryBuilder()
             ->select('*')
             ->from($this->tableName());
+
+        $this->applyTenantScope($qb);
+
+        return $qb;
+    }
+
+    /**
+     * Apply the current tenant predicate to $qb when this repository is
+     * #[TenantScoped]. No-op for unscoped repositories.
+     *
+     * Fail-closed: a scoped repository with no tenant in context (and no system
+     * override) throws rather than reading across tenants.
+     *
+     * @throws MissingTenantContextException
+     */
+    protected function applyTenantScope(QueryBuilder $qb): void
+    {
+        $column = TenantScopeResolver::columnFor(static::class);
+        if ($column === null) {
+            return;
+        }
+
+        if ($this->tenantContext === null) {
+            throw MissingTenantContextException::forScopedAccess(static::class);
+        }
+
+        $decision = $this->tenantContext->scopingDecision();
+        if ($decision === TenantContext::SYSTEM) {
+            return;
+        }
+        if ($decision === null) {
+            throw MissingTenantContextException::forScopedAccess(static::class);
+        }
+
+        $qb->andWhere("{$column} = :__tenant_id")->setParameter('__tenant_id', $decision);
     }
 
     private function encodeCursor(array $lastItem, array $sort): string

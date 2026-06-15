@@ -16,7 +16,9 @@ use Vortos\PersistenceDbal\Health\DatabaseHealthCheck;
 use Vortos\PersistenceDbal\Logging\LoggingDbalMiddleware;
 use Vortos\PersistenceDbal\Schema\FrameworkPrefix;
 use Vortos\PersistenceDbal\Tracing\TracingDbalMiddleware;
+use Vortos\PersistenceDbal\Tenant\TenantSessionBinder;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
+use Vortos\Tenant\TenantContext;
 use Vortos\Tracing\Contract\TracingInterface;
 
 /**
@@ -109,9 +111,20 @@ final class DbalPersistenceExtension extends Extension
             ->setPublic(true)
             ->setLazy(true);
 
-        $container->register(UnitOfWork::class, UnitOfWork::class)
+        $unitOfWork = $container->register(UnitOfWork::class, UnitOfWork::class)
             ->setArgument('$connection', new Reference(Connection::class))
             ->setPublic(false);
+
+        // Tenant RLS binding — only when the tenant package is installed.
+        if ($container->has(TenantContext::class)) {
+            $container->register(TenantSessionBinder::class, TenantSessionBinder::class)
+                ->setArgument('$connection', new Reference(Connection::class))
+                ->setArgument('$tenantContext', new Reference(TenantContext::class))
+                ->setShared(true)
+                ->setPublic(false);
+
+            $unitOfWork->setArgument('$tenantBinder', new Reference(TenantSessionBinder::class));
+        }
 
         $container->setAlias(UnitOfWorkInterface::class, UnitOfWork::class)
             ->setPublic(false);

@@ -6,6 +6,7 @@ namespace Vortos\PersistenceDbal\Transaction;
 
 use Doctrine\DBAL\Connection;
 use Vortos\Persistence\Transaction\UnitOfWorkInterface;
+use Vortos\PersistenceDbal\Tenant\TenantSessionBinder;
 
 /**
  * DBAL implementation of UnitOfWorkInterface.
@@ -34,7 +35,15 @@ use Vortos\Persistence\Transaction\UnitOfWorkInterface;
  */
 final class UnitOfWork implements UnitOfWorkInterface
 {
-    public function __construct(private Connection $connection) {}
+    /**
+     * @param TenantSessionBinder|null $tenantBinder When wired (tenant package
+     *        present), binds the tenant GUC for RLS at the start of each
+     *        transaction. Null disables RLS binding (single-tenant apps).
+     */
+    public function __construct(
+        private Connection $connection,
+        private ?TenantSessionBinder $tenantBinder = null,
+    ) {}
 
     /**
      * Execute $work inside a transaction with connection resilience.
@@ -52,6 +61,9 @@ final class UnitOfWork implements UnitOfWorkInterface
         $this->connection->beginTransaction();
 
         try {
+            // Bind the tenant GUC for RLS — transaction-scoped, auto-cleared on commit/rollback.
+            $this->tenantBinder?->bindLocal();
+
             $result = $work();
             $this->connection->commit();
             return $result;

@@ -10,6 +10,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Vortos\PersistenceDbal\Attribute\UsesDbalMapper;
+use Vortos\Tenant\TenantContext;
+use Vortos\Tenant\TenantScopeResolver;
 
 /**
  * Auto-wires DbalStore into repositories that declare #[UsesDbalMapper].
@@ -60,11 +62,22 @@ final class DbalRepositoryCompilerPass implements CompilerPassInterface
             }
 
             $storeId = 'vortos.dbal_store.' . $className;
-            $container->setDefinition($storeId, (new Definition($storeClass))
+            $storeDefinition = (new Definition($storeClass))
                 ->setArgument('$connection', new Reference(Connection::class))
                 ->setArgument('$mapper', new Reference($mapperId))
                 ->setShared(true)
-                ->setPublic(false));
+                ->setPublic(false);
+
+            // Tenant scoping: when the repository is #[TenantScoped], the store
+            // stamps and filters writes by the ambient tenant.
+            $tenantColumn = TenantScopeResolver::columnFor($className);
+            if ($tenantColumn !== null && $container->has(TenantContext::class)) {
+                $storeDefinition
+                    ->setArgument('$tenantContext', new Reference(TenantContext::class))
+                    ->setArgument('$tenantColumn', $tenantColumn);
+            }
+
+            $container->setDefinition($storeId, $storeDefinition);
 
             $definition->setArgument('$store', new Reference($storeId));
         }
