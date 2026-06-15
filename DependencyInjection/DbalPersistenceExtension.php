@@ -18,6 +18,7 @@ use Vortos\PersistenceDbal\Schema\FrameworkPrefix;
 use Vortos\PersistenceDbal\Tracing\TracingDbalMiddleware;
 use Vortos\PersistenceDbal\Tenant\TenantSessionBinder;
 use Vortos\PersistenceDbal\Transaction\UnitOfWork;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
 use Vortos\Tenant\TenantContext;
 use Vortos\Tracing\Contract\TracingInterface;
 
@@ -122,6 +123,11 @@ final class DbalPersistenceExtension extends Extension
                 ->setArgument('$tenantContext', new Reference(TenantContext::class))
                 ->setShared(true)
                 ->setPublic(false);
+
+            // Expose via the shared interface unless an ORM binder already claimed it.
+            if (!$container->hasAlias(TenantGucBinderInterface::class) && !$container->hasDefinition(TenantGucBinderInterface::class)) {
+                $container->setAlias(TenantGucBinderInterface::class, TenantSessionBinder::class)->setPublic(true);
+            }
 
             $unitOfWork->setArgument('$tenantBinder', new Reference(TenantSessionBinder::class));
         }

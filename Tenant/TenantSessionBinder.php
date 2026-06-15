@@ -5,24 +5,23 @@ declare(strict_types=1);
 namespace Vortos\PersistenceDbal\Tenant;
 
 use Doctrine\DBAL\Connection;
+use Vortos\Tenant\Session\TenantGucBinderInterface;
 use Vortos\Tenant\TenantContext;
 
 /**
  * Binds the ambient tenant to the PostgreSQL session GUC that Row-Level Security
  * policies read — the glue between {@see TenantContext} (Layer 1) and RLS
- * (Layer 3, see {@see \Vortos\Tenant\Rls\TenantRlsPolicy}).
+ * (Layer 3, see {@see \Vortos\Tenant\Rls\TenantRlsPolicy}) on the DBAL path.
  *
- * Uses set_config(name, value, is_local=true), so the value is scoped to the
- * current transaction and is cleared automatically on commit/rollback — safe for
- * pooled and worker-mode connections.
+ * Uses set_config(name, value, is_local): bindLocal() is transaction-scoped
+ * (auto-cleared on commit/rollback); bindSession() is request/session-scoped and
+ * resets to '' when no tenant, so a pooled/worker connection cannot leak the
+ * previous request's tenant.
  *
- * When the context carries no concrete tenant (unset, or system scope) the GUC
- * is left unset; with `current_setting('app.current_tenant', true)` returning
- * NULL, the isolation policy then matches no rows — fail closed. Cross-tenant
- * system work should run under a database role that is granted BYPASSRLS or an
- * explicit permissive policy.
+ * Cross-tenant system work should run under a database role granted BYPASSRLS or
+ * an explicit permissive policy.
  */
-final class TenantSessionBinder
+final class TenantSessionBinder implements TenantGucBinderInterface
 {
     public function __construct(
         private readonly Connection $connection,
@@ -30,21 +29,28 @@ final class TenantSessionBinder
         private readonly string $setting = 'app.current_tenant',
     ) {}
 
-    /**
-     * Bind the current tenant for the duration of the active transaction.
-     * Call this immediately after BEGIN.
-     */
+    public function bindSession(): void
+    {
+        $this->bind($this->resolveTenant(), local: false);
+    }
+
     public function bindLocal(): void
+    {
+        $this->bind($this->resolveTenant(), local: true);
+    }
+
+    private function resolveTenant(): string
     {
         $decision = $this->tenantContext->scopingDecision();
 
-        if ($decision === null || $decision === TenantContext::SYSTEM) {
-            return;
-        }
+        return ($decision === null || $decision === TenantContext::SYSTEM) ? '' : $decision;
+    }
 
+    private function bind(string $value, bool $local): void
+    {
         $this->connection->executeStatement(
-            'SELECT set_config(?, ?, true)',
-            [$this->setting, $decision],
+            'SELECT set_config(?, ?, ?)',
+            [$this->setting, $value, $local ? 1 : 0],
         );
     }
 }
