@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\PersistenceDbal\DependencyInjection\Compiler\DbalRepositoryCompilerPass;
+use Vortos\PersistenceDbal\DependencyInjection\Compiler\TenantBindingCompilerPass;
 use Vortos\PersistenceDbal\N1Detection\N1DetectionCompilerPass;
 
 /**
@@ -36,5 +37,6 @@ final class DbalPersistencePackage implements PackageInterface
             8,
         );
         $container->addCompilerPass(new N1DetectionCompilerPass());
+        $container->addCompilerPass(new TenantBindingCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION);
     }
 }
