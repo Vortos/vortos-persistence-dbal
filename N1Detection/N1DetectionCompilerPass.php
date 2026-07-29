@@ -47,9 +47,13 @@ final class N1DetectionCompilerPass implements CompilerPassInterface
 
         $this->registerSharedServices($container);
 
+        // Both, not either: when the ORM is installed alongside DBAL it owns the connection that
+        // queries actually run through, so injecting only into DBAL wires the orphaned stack.
         if ($hasDbal) {
             $this->injectIntoDbal($container);
-        } else {
+        }
+
+        if ($hasOrm) {
             $this->injectIntoOrm($container);
         }
     }

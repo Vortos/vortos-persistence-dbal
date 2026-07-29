@@ -10,6 +10,7 @@ use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Vortos\Foundation\Contract\PackageInterface;
 use Vortos\PersistenceDbal\DependencyInjection\Compiler\DbalRepositoryCompilerPass;
 use Vortos\PersistenceDbal\DependencyInjection\Compiler\TenantBindingCompilerPass;
+use Vortos\PersistenceDbal\DependencyInjection\Compiler\DbalMiddlewareOrmBridgePass;
 use Vortos\PersistenceDbal\N1Detection\N1DetectionCompilerPass;
 
 /**
@@ -37,6 +38,10 @@ final class DbalPersistencePackage implements PackageInterface
             8,
         );
         $container->addCompilerPass(new N1DetectionCompilerPass());
+        // The ORM re-registers Connection as EntityManager::getConnection(), so the DBAL
+        // Configuration these middlewares hang off is never consumed. Without this, DB spans and
+        // slow-query logs vanish on every ORM install.
+        $container->addCompilerPass(new DbalMiddlewareOrmBridgePass());
         $container->addCompilerPass(new TenantBindingCompilerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION);
     }
 }
