@@ -109,7 +109,18 @@ final class N1DetectionCompilerPass implements CompilerPassInterface
             $args[] = null;
         }
 
-        $args[4] = [new Reference(N1DetectorMiddleware::class)];
+        // Append rather than assign. PersistenceMetricsCompilerPass injects into this same slot,
+        // and a straight assignment meant whichever pass ran last silently discarded the other's
+        // middleware — losing either N1 detection or DB query metrics depending on pass order.
+        $existing = $args[4] ?? [];
+
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+
+        $existing[] = new Reference(N1DetectorMiddleware::class);
+        $args[4] = $existing;
+
         $emDef->setArguments($args);
     }
 }
